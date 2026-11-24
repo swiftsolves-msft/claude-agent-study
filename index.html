@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Agent Design Study Series</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --card: #1a2332;
+  --card-front: #1e2a3a;
+  --accent: #5b9aff;
+  --accent-soft: #3a6cb5;
+  --text: #e8eef5;
+  --text-dim: #a0b0c0;
+  --good: #4ade80;
+  --border: #2d3a4d;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  padding: 1rem 1.25rem 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+header h1 { margin: 0; font-size: 1.3rem; font-weight: 600; }
+header p { margin: 0.3rem 0 0; font-size: 0.85rem; color: var(--text-dim); }
+.day-selector {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+.day-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+.day-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.progress-bar {
+  height: 4px;
+  background: var(--border);
+  margin: 0.5rem 1.25rem 0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+.stats {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.4rem 1.25rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.card-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  perspective: 1200px;
+}
+.card {
+  width: 100%;
+  max-width: 440px;
+  height: 340px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1);
+  cursor: pointer;
+  border-radius: 16px;
+}
+.card.flipped { transform: rotateY(180deg); }
+.card-face {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  border-radius: 16px;
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  border: 1px solid var(--border);
+}
+.card-front { background: var(--card-front); }
+.card-back { background: var(--card); transform: rotateY(180deg); }
+.card-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 0.6rem;
+  font-weight: 600;
+}
+.card-content {
+  font-size: 1.02rem;
+  line-height: 1.45;
+  flex: 1;
+  overflow-y: auto;
+}
+.card-content h3 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+.card-content p, .card-content ul, .card-content ol { margin: 0.35rem 0; }
+.card-content ul, .card-content ol { padding-left: 1.2rem; }
+.controls {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem 1.5rem;
+  justify-content: center;
+}
+button {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.7rem 1.1rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  flex: 1;
+  max-width: 130px;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+footer {
+  text-align: center;
+  padding: 0.5rem 1rem 1rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+@media (min-width: 600px) {
+  .card { height: 380px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Claude Agent Design</h1>
+  <p id="day-title">Study Series</p>
+</header>
+<div class="day-selector" id="day-selector"></div>
+<div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+<div class="stats">
+  <span id="counter">1 / 0</span>
+  <span id="known">Known: 0</span>
+</div>
+<div class="card-container">
+  <div class="card" id="card" onclick="flipCard()">
+    <div class="card-face card-front">
+      <div class="card-label">Question</div>
+      <div class="card-content" id="front"></div>
+    </div>
+    <div class="card-face card-back">
+      <div class="card-label">Answer</div>
+      <div class="card-content" id="back"></div>
+    </div>
+  </div>
+</div>
+<div class="controls">
+  <button onclick="prevCard()" id="prevBtn">← Prev</button>
+  <button onclick="markKnown()" class="primary" id="knownBtn">Got it</button>
+  <button onclick="nextCard()" id="nextBtn">Next →</button>
+</div>
+<footer>Conceptual flashcards · Sources: Anthropic Building Effective Agents, Claude Cookbook, Managed Agents Overview</footer>
+
+<script>
+// Study data — add future days here as new keys
+const studyData = {
+  "2": {
+    title: "Study Day 2: Workflows vs Agents & Task Decomposition",
+    cards: [
+      {
+        front: "<h3>What is the key architectural distinction between workflows and agents?</h3>",
+        back: "<p><strong>Workflows</strong> are systems where LLMs and tools are orchestrated through <em>predefined code paths</em>.</p><p><strong>Agents</strong> are systems where LLMs <em>dynamically direct their own processes and tool usage</em>, maintaining control over how they accomplish tasks.</p><p>Both are agentic systems, but workflows prioritize predictability while agents prioritize flexibility.</p>"
+      },
+      {
+        front: "<h3>When should you use a workflow instead of an agent?</h3>",
+        back: "<p>Use workflows when the task is well-defined and you can predict the steps in advance. They offer:</p><ul><li>Predictability and consistency</li><li>Easier debugging and testing</li><li>Lower cost and latency for fixed paths</li></ul><p>Prefer them over agents whenever a fixed sequence or routing logic is sufficient.</p>"
+      },
+      {
+        front: "<h3>When are agents the better choice?</h3>",
+        back: "<p>Agents are better for open-ended problems where:</p><ul><li>You cannot predict the number of steps</li><li>You cannot hardcode a fixed path</li><li>Flexibility and model-driven decisions are needed</li></ul><p>They trade higher cost, latency, and error risk for autonomy. Use only in trusted environments with strong testing and guardrails.</p>"
+      },
+      {
+        front: "<h3>What is the recommended starting point when building with LLMs?</h3>",
+        back: "<p>Start with the simplest solution possible. For many applications, optimizing a single LLM call with retrieval and in-context examples is enough.</p><p>Only increase complexity (to workflows, then agents) when simpler approaches demonstrably fall short. Agentic systems trade latency and cost for better performance.</p>"
+      },
+      {
+        front: "<h3>What is the foundational building block of agentic systems?</h3>",
+        back: "<p>The <strong>augmented LLM</strong>: an LLM enhanced with retrieval, tools, and memory.</p><p>Current models can generate their own search queries, select tools, and decide what to retain. Focus on tailoring these capabilities and giving the model a clear, well-documented interface.</p>"
+      },
+      {
+        front: "<h3>What is prompt chaining and when is it useful?</h3>",
+        back: "<p>Prompt chaining decomposes a task into a fixed sequence of steps where each LLM call processes the output of the previous one. Programmatic checks (“gates”) can validate intermediate steps.</p><p><strong>Use when</strong> the task breaks cleanly into fixed subtasks. It trades latency for higher accuracy by making each step simpler.</p><p><em>Example:</em> Generate marketing copy → translate it; or write outline → check criteria → write full document.</p>"
+      },
+      {
+        front: "<h3>What is the routing workflow pattern?</h3>",
+        back: "<p>Routing classifies an input and directs it to a specialized follow-up task, prompt, or model. It enables separation of concerns so optimizing for one input type doesn’t hurt others.</p><p><strong>Use when</strong> there are distinct categories that are better handled separately and classification can be done accurately.</p><p><em>Examples:</em> Route customer queries (general / refund / technical); send easy questions to a smaller model and hard ones to a more capable model.</p>"
+      },
+      {
+        front: "<h3>What is parallelization and its two main variations?</h3>",
+        back: "<p>Parallelization runs multiple LLMs simultaneously and aggregates results programmatically.</p><ul><li><strong>Sectioning</strong>: Break a task into independent subtasks run in parallel.</li><li><strong>Voting</strong>: Run the same task multiple times for diverse outputs or higher confidence.</li></ul><p><strong>Use when</strong> subtasks can run concurrently for speed, or multiple perspectives improve confidence.</p>"
+      },
+      {
+        front: "<h3>When is the orchestrator-workers pattern appropriate?</h3>",
+        back: "<p>A central LLM dynamically breaks a task into subtasks, delegates them to worker LLMs, and synthesizes the results. Subtasks are <em>not</em> predefined.</p><p><strong>Use when</strong> you cannot predict the subtasks in advance (e.g., coding changes across an unknown number of files, or search that requires gathering from multiple sources).</p><p>Key difference from parallelization: flexibility — the orchestrator decides the work based on the input.</p>"
+      },
+      {
+        front: "<h3>What is the evaluator-optimizer workflow?</h3>",
+        back: "<p>One LLM generates a response while another provides evaluation and feedback in a loop until quality is sufficient.</p><p><strong>Use when</strong> there are clear evaluation criteria and iterative refinement produces measurable value (analogous to a human writer’s draft-and-revise process).</p><p><em>Examples:</em> Literary translation with critique; multi-round search where the evaluator decides whether more searching is needed.</p>"
+      },
+      {
+        front: "<h3>How do agents typically operate at a high level?</h3>",
+        back: "<p>Agents begin with a user command or discussion, then plan and operate independently. They gain “ground truth” from the environment (tool results, code execution) at each step, can pause for human feedback at checkpoints, and usually include stopping conditions (e.g., max iterations).</p><p>Implementation is often straightforward: an LLM using tools in a loop based on environmental feedback. Clear tool design and documentation are critical.</p>"
+      },
+      {
+        front: "<h3>What are the three core principles Anthropic recommends for agents?</h3>",
+        back: "<ol><li><strong>Maintain simplicity</strong> in the agent’s design.</li><li><strong>Prioritize transparency</strong> by explicitly showing the agent’s planning steps.</li><li><strong>Carefully craft the agent-computer interface (ACI)</strong> through thorough tool documentation and testing.</li></ol><p>Add complexity only when it demonstrably improves outcomes. Measure and iterate.</p>"
+      },
+      {
+        front: "<h3>What are the four core concepts in Claude Managed Agents?</h3>",
+        back: "<ul><li><strong>Agent</strong>: The model, system prompt, tools, MCP servers, and skills.</li><li><strong>Environment</strong>: Configuration for where sessions run (Anthropic-managed cloud sandbox or self-hosted sandbox).</li><li><strong>Session</strong>: A running agent instance performing a specific task and generating outputs.</li><li><strong>Events</strong>: Messages exchanged between your application and the agent (user turns, tool results, status updates).</li></ul>"
+      },
+      {
+        front: "<h3>How does Claude Managed Agents differ from the Messages API?</h3>",
+        back: "<p><strong>Messages API</strong>: Direct model prompting access. Best for custom agent loops and fine-grained control.</p><p><strong>Claude Managed Agents</strong>: Pre-built, configurable agent harness that runs in managed infrastructure. Best for long-running tasks and asynchronous work.</p><p>Managed Agents eliminate the need to build your own agent loop, tool execution, and runtime.</p>"
+      },
+      {
+        front: "<h3>What does “decoupling the brain from the hands” mean in Managed Agents?</h3>",
+        back: "<p>The <strong>brain</strong> (Claude model + system prompt + tools/skills) is defined once and reused. The <strong>hands</strong> (sandbox / execution environment) are configured independently.</p><p>This separation lets you swap infrastructure (cloud sandbox vs self-hosted) without changing the agent definition, and supports long-running, stateful sessions with persistent filesystems and history.</p>"
+      },
+      {
+        front: "<h3>When is Claude Managed Agents especially useful?</h3>",
+        back: "<ul><li>Long-running execution (minutes to hours, many tool calls)</li><li>Need for secure sandboxes with pre-installed packages and network access</li><li>Self-hosted execution for compliance or data residency</li><li>Stateful sessions that resume cleanly</li><li>Minimal infrastructure on your side (no custom agent loop or sandbox to manage)</li><li>Scheduled / recurring runs</li></ul>"
+      },
+      {
+        front: "<h3>What is the main tradeoff of using agentic systems (workflows or agents)?</h3>",
+        back: "<p>They typically trade higher latency and cost for better task performance compared with a well-optimized single LLM call.</p><p>You should only add this complexity when the performance gain justifies the overhead. For many applications, a single call with retrieval and good examples remains the better choice.</p>"
+      },
+      {
+        front: "<h3>Why does Anthropic recommend starting with LLM APIs directly rather than frameworks?</h3>",
+        back: "<p>Frameworks simplify low-level tasks (calling LLMs, defining tools, chaining) but often add abstraction layers that obscure the underlying prompts and responses, making debugging harder. They can also tempt unnecessary complexity.</p><p>Many patterns can be implemented in a few lines of direct API code. If you use a framework, understand the underlying code to avoid incorrect assumptions.</p>"
+      },
+      {
+        front: "<h3>What is the key difference between orchestrator-workers and simple parallelization?</h3>",
+        back: "<p>In <strong>parallelization</strong>, the subtasks are predefined and independent.</p><p>In <strong>orchestrator-workers</strong>, a central LLM dynamically decides what subtasks are needed based on the specific input, delegates them, and synthesizes results. The number and nature of subtasks are not known in advance.</p><p>This flexibility makes orchestrator-workers suited to more open-ended decomposition.</p>"
+      },
+      {
+        front: "<h3>How should you think about task decomposition when choosing a pattern?</h3>",
+        back: "<p>Ask: Can the steps be known and fixed in advance?</p><ul><li>Yes, sequential → Prompt chaining</li><li>Yes, independent → Parallelization (sectioning)</li><li>Input type determines path → Routing</li><li>Subtasks emerge at runtime → Orchestrator-workers</li><li>Need iterative quality improvement with clear criteria → Evaluator-optimizer</li><li>Steps truly unpredictable and open-ended → Full agent</li></ul><p>Prefer the simplest pattern that meets the need.</p>"
+      }
+    ]
+  }
+  // Future days: add "3": { title: "...", cards: [...] }, etc.
+};
+
+let currentDay = "2";
+let current = 0;
+let known = {};
+let flipped = false;
+
+function loadKnown() {
+  try {
+    known = JSON.parse(localStorage.getItem("claudeStudyKnown") || "{}");
+  } catch (e) { known = {}; }
+}
+function saveKnown() {
+  localStorage.setItem("claudeStudyKnown", JSON.stringify(known));
+}
+
+function renderDaySelector() {
+  const sel = document.getElementById("day-selector");
+  sel.innerHTML = "";
+  Object.keys(studyData).sort((a,b) => Number(a)-Number(b)).forEach(day => {
+    const btn = document.createElement("button");
+    btn.className = "day-btn" + (day === currentDay ? " active" : "");
+    btn.textContent = "Day " + day;
+    btn.onclick = () => switchDay(day);
+    sel.appendChild(btn);
+  });
+}
+
+function switchDay(day) {
+  currentDay = day;
+  current = 0;
+  flipped = false;
+  document.getElementById("card").classList.remove("flipped");
+  document.getElementById("day-title").textContent = studyData[day].title;
+  renderDaySelector();
+  render();
+}
+
+function getCards() {
+  return studyData[currentDay]?.cards || [];
+}
+
+function render() {
+  const cards = getCards();
+  if (!cards.length) return;
+  const card = cards[current];
+  document.getElementById("front").innerHTML = card.front;
+  document.getElementById("back").innerHTML = card.back;
+  document.getElementById("counter").textContent = `${current + 1} / ${cards.length}`;
+  const dayKnown = known[currentDay] || [];
+  document.getElementById("known").textContent = `Known: ${dayKnown.length}`;
+  document.getElementById("progress").style.width = `${((current + 1) / cards.length) * 100}%`;
+  document.getElementById("prevBtn").disabled = current === 0;
+  document.getElementById("nextBtn").disabled = current === cards.length - 1;
+  document.getElementById("card").classList.remove("flipped");
+  flipped = false;
+  document.getElementById("knownBtn").textContent = dayKnown.includes(current) ? "Known ✓" : "Got it";
+}
+
+function flipCard() {
+  flipped = !flipped;
+  document.getElementById("card").classList.toggle("flipped", flipped);
+}
+
+function nextCard() {
+  const cards = getCards();
+  if (current < cards.length - 1) {
+    current++;
+    render();
+  }
+}
+function prevCard() {
+  if (current > 0) {
+    current--;
+    render();
+  }
+}
+function markKnown() {
+  if (!known[currentDay]) known[currentDay] = [];
+  const arr = known[currentDay];
+  const idx = arr.indexOf(current);
+  if (idx >= 0) arr.splice(idx, 1);
+  else arr.push(current);
+  saveKnown();
+  render();
+}
+
+// Keyboard
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight" || e.key === " ") {
+    e.preventDefault();
+    if (!flipped) flipCard();
+    else nextCard();
+  } else if (e.key === "ArrowLeft") {
+    prevCard();
+  } else if (e.key === "Enter") {
+    markKnown();
+  }
+});
+
+// Swipe
+let touchStartX = 0;
+document.getElementById("card").addEventListener("touchstart", (e) => {
+  touchStartX = e.changedTouches[0].screenX;
+}, {passive: true});
+document.getElementById("card").addEventListener("touchend", (e) => {
+  const diff = e.changedTouches[0].screenX - touchStartX;
+  if (Math.abs(diff) > 50) {
+    if (diff < 0) nextCard();
+    else prevCard();
+  }
+}, {passive: true});
+
+loadKnown();
+renderDaySelector();
+switchDay("2");
+</script>
+</body>
+</html>
